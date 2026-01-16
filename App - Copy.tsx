@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   CreditCard, Upload, Plus, Trash2, Calendar, DollarSign, Activity, 
@@ -17,7 +18,7 @@ import { fmt, getDueDateDistance, getGoogleCalendarLink } from './utils.ts';
 import { Card, Button } from './components/UI.tsx';
 import { getSpendingInsights, extractFromImage, extractFromText } from './services/geminiService.ts';
 
-// --- Static Helpers ---
+// Helper for category icons
 const getCategoryIcon = (category: string) => {
   switch (category) {
     case 'Groceries': return <ShoppingBasket size={14} />;
@@ -31,240 +32,42 @@ const getCategoryIcon = (category: string) => {
   }
 };
 
-// --- Sub-components moved outside to prevent re-mounting focus issues ---
-
-interface TransactionModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  manualTx: Partial<Transaction>;
-  setManualTx: React.Dispatch<React.SetStateAction<Partial<Transaction>>>;
-  accounts: Account[];
-  onSave: (e: React.FormEvent) => void;
-}
-
-const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onClose, manualTx, setManualTx, accounts, onSave }) => {
-  if (!isOpen) return null;
-  return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-      <Card className="max-w-xl w-full p-8 border-none shadow-3xl animate-in zoom-in-95">
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-2xl font-black text-slate-900">New Transaction</h3>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X/></button>
-        </div>
-        
-        <form onSubmit={onSave} className="space-y-6">
-          <div className="space-y-4">
-            <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Target Account</label>
-              <select 
-                required 
-                value={manualTx.accountId} 
-                onChange={e => setManualTx(prev => ({...prev, accountId: Number(e.target.value)}))}
-                className="w-full p-3 bg-slate-50 border rounded-xl font-bold focus:ring-2 focus:ring-blue-500 outline-none"
-              >
-                {accounts.map(acc => (
-                  <option key={acc.id} value={acc.id}>{acc.name} ({fmt(acc.balance)})</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Description</label>
-              <div className="relative">
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Tag size={18}/></div>
-                <input 
-                  type="text" required placeholder="Where did you spend?"
-                  value={manualTx.description || ""} 
-                  onChange={e => setManualTx(prev => ({...prev, description: e.target.value}))} 
-                  className="w-full p-3 pl-10 bg-slate-50 border rounded-xl font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Amount</label>
-                <div className="relative">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">RM</div>
-                  <input 
-                    type="number" step="0.01" required 
-                    value={manualTx.amount || ""} 
-                    onChange={e => setManualTx(prev => ({...prev, amount: Number(e.target.value)}))} 
-                    className="w-full p-3 pl-10 bg-slate-50 border rounded-xl font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Date</label>
-                <input 
-                  type="date" required 
-                  value={manualTx.date || ""} 
-                  onChange={e => setManualTx(prev => ({...prev, date: e.target.value}))} 
-                  className="w-full p-3 bg-slate-50 border rounded-xl font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase mb-3 block tracking-widest">Category</label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {CATEGORIES.map(cat => (
-                  <button
-                    key={cat} type="button"
-                    onClick={() => setManualTx(prev => ({...prev, category: cat}))}
-                    className={`px-3 py-2 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-2 border-2 ${manualTx.category === cat ? 'bg-blue-600 border-blue-600 text-white shadow-lg' : 'bg-white border-slate-100 text-slate-500 hover:border-slate-200'}`}
-                  >
-                    {getCategoryIcon(cat)} {cat}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <Button type="submit" className="w-full py-4 text-lg font-black shadow-xl" icon={Plus}>Add to Ledger</Button>
-        </form>
-      </Card>
-    </div>
-  );
-};
-
-interface CardEditorModalProps {
-  editingAccount: Account | null;
-  onClose: () => void;
-  onSave: (e: React.FormEvent) => void;
-  setEditingAccount: React.Dispatch<React.SetStateAction<Account | null>>;
-}
-
-const CardEditorModal: React.FC<CardEditorModalProps> = ({ editingAccount, onClose, onSave, setEditingAccount }) => {
-  if (!editingAccount) return null;
-  const colors = ["bg-blue-600", "bg-emerald-600", "bg-indigo-600", "bg-rose-600", "bg-amber-500", "bg-slate-700", "bg-orange-500", "bg-yellow-500"];
-  
-  return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-      <Card className="max-w-xl w-full max-h-[90vh] overflow-y-auto p-8 border-none shadow-3xl animate-in zoom-in-95">
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-2xl font-black text-slate-900">Edit Card Rules</h3>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X/></button>
-        </div>
-        
-        <form onSubmit={onSave} className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Card Display Name</label>
-              <input type="text" required value={editingAccount.name} onChange={e => setEditingAccount({...editingAccount, name: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold" />
-            </div>
-            <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Card Theme</label>
-              <div className="flex flex-wrap gap-2">
-                {colors.map(c => (
-                  <button key={c} type="button" onClick={() => setEditingAccount({...editingAccount, color: c})} className={`w-8 h-8 rounded-full ${c} ${editingAccount.color === c ? 'ring-4 ring-slate-200 scale-110' : ''} transition-all`}/>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Credit Limit</label>
-              <input type="number" required value={editingAccount.limit} onChange={e => setEditingAccount({...editingAccount, limit: Number(e.target.value)})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold" />
-            </div>
-            <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Due Day (1-31)</label>
-              <input type="number" min="1" max="31" required value={editingAccount.dueDay} onChange={e => setEditingAccount({...editingAccount, dueDay: Number(e.target.value)})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold" />
-            </div>
-          </div>
-
-          <div className="bg-slate-50 p-6 rounded-2xl space-y-4 border border-slate-100">
-             <div className="flex justify-between items-center">
-               <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest">Reward Strategy</h4>
-               <select value={editingAccount.benefits.type} onChange={e => setEditingAccount({...editingAccount, benefits: {...editingAccount.benefits, type: e.target.value as any}})} className="bg-white border text-[10px] font-black p-1 rounded-lg">
-                  <option value="cashback">Cashback (%)</option>
-                  <option value="points">Points (x)</option>
-               </select>
-             </div>
-             
-             <div className="grid grid-cols-2 gap-4 border-b pb-4">
-                <div>
-                  <label className="text-[8px] font-black text-slate-400 uppercase block mb-1">Base Rate</label>
-                  <input type="number" step="0.1" value={editingAccount.benefits.baseRate} onChange={e => setEditingAccount({...editingAccount, benefits: {...editingAccount.benefits, baseRate: Number(e.target.value)}})} className="w-full p-2 border rounded-lg font-bold text-sm" />
-                </div>
-                <div>
-                  <label className="text-[8px] font-black text-slate-400 uppercase block mb-1">Monthly Reward Cap</label>
-                  <input type="number" value={editingAccount.benefits.cap} onChange={e => setEditingAccount({...editingAccount, benefits: {...editingAccount.benefits, cap: Number(e.target.value)}})} className="w-full p-2 border rounded-lg font-bold text-sm" placeholder="0 = Unlimited" />
-                </div>
-             </div>
-
-             <div className="space-y-3">
-               <div className="flex justify-between items-center">
-                 <label className="text-[10px] font-black text-slate-400 uppercase block tracking-widest">Category Multipliers</label>
-                 <button type="button" onClick={() => {
-                   setEditingAccount({...editingAccount, benefits: {...editingAccount.benefits, rules: [...editingAccount.benefits.rules, {category: "Dining", rate: 5}]}});
-                 }} className="text-blue-600 text-[10px] font-black flex items-center gap-1"><Plus size={12}/> ADD RULE</button>
-               </div>
-               {editingAccount.benefits.rules.map((rule, idx) => (
-                 <div key={idx} className="flex gap-2 animate-in slide-in-from-left-2">
-                   <select value={rule.category} onChange={e => {
-                      const rules = [...editingAccount.benefits.rules];
-                      rules[idx].category = e.target.value;
-                      setEditingAccount({...editingAccount, benefits: {...editingAccount.benefits, rules}});
-                   }} className="flex-1 p-2 border rounded-lg text-xs font-bold bg-white">
-                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                   </select>
-                   <input type="number" step="0.1" value={rule.rate} onChange={e => {
-                      const rules = [...editingAccount.benefits.rules];
-                      rules[idx].rate = Number(e.target.value);
-                      setEditingAccount({...editingAccount, benefits: {...editingAccount.benefits, rules}});
-                   }} className="w-20 p-2 border rounded-lg font-bold text-xs bg-white text-center" />
-                   <button type="button" onClick={() => {
-                      const rules = editingAccount.benefits.rules.filter((_, i) => i !== idx);
-                      setEditingAccount({...editingAccount, benefits: {...editingAccount.benefits, rules}});
-                   }} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg"><Trash2 size={16}/></button>
-                 </div>
-               ))}
-             </div>
-          </div>
-
-          <Button type="submit" className="w-full py-4 font-black shadow-xl" icon={Save}>Apply Card Changes</Button>
-        </form>
-      </Card>
-    </div>
-  );
-};
-
-// --- Main App Component ---
 export default function CreditMind() {
+  // --- Tab & Global State ---
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [importMode, setImportMode] = useState<'screenshot' | 'text' | 'manual'>('screenshot');
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // Data State
+  // --- Data Persistence ---
   const [accounts, setAccounts] = useState<Account[]>(() => {
     try {
-      const saved = localStorage.getItem('cm_accounts_v5');
+      const saved = localStorage.getItem('cm_accounts_v4');
       if (!saved) return INITIAL_ACCOUNTS;
-      return JSON.parse(saved);
+      const parsed = JSON.parse(saved);
+      return parsed.length > 0 ? parsed : INITIAL_ACCOUNTS;
     } catch { return INITIAL_ACCOUNTS; }
   });
   
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     try {
-      const saved = localStorage.getItem('cm_transactions_v5');
+      const saved = localStorage.getItem('cm_transactions_v4');
       if (!saved) return INITIAL_TRANSACTIONS;
       return JSON.parse(saved);
     } catch { return INITIAL_TRANSACTIONS; }
   });
 
   useEffect(() => {
-    localStorage.setItem('cm_accounts_v5', JSON.stringify(accounts));
-    localStorage.setItem('cm_transactions_v5', JSON.stringify(transactions));
+    localStorage.setItem('cm_accounts_v4', JSON.stringify(accounts));
+    localStorage.setItem('cm_transactions_v4', JSON.stringify(transactions));
   }, [accounts, transactions]);
 
-  // UI States
+  // --- UI Logic States ---
   const [isProcessing, setIsProcessing] = useState(false);
   const [previewImages, setPreviewImages] = useState<string[]>([]);
   const [pastedText, setPastedText] = useState("");
   const [detectedData, setDetectedData] = useState<StatementInfo | null>(null);
   const [targetAccountId, setTargetAccountId] = useState(accounts[0]?.id || 1);
+  const [importStatus, setImportStatus] = useState({ msg: "", type: "" });
   const [aiInsights, setAiInsights] = useState("");
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   
@@ -279,17 +82,18 @@ export default function CreditMind() {
     accountId: accounts[0]?.id || 1
   });
 
-  // Analytics
+  // --- Derived Analytics ---
   const stats = useMemo(() => {
     const totalDebt = accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0);
     const categoryData = CATEGORIES.map(cat => ({
       name: cat,
       value: transactions.filter(t => t.category === cat).reduce((sum, t) => sum + (t.amount || 0), 0)
     })).filter(d => d.value > 0);
+    
     return { totalDebt, categoryData };
   }, [accounts, transactions]);
 
-  // Handlers
+  // --- Handlers ---
   const handleSaveManualTx = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualTx.description || !manualTx.amount || !manualTx.accountId) return;
@@ -321,30 +125,25 @@ export default function CreditMind() {
     });
   };
 
-  const deleteTransaction = (id: number) => {
-    const tx = transactions.find(t => t.id === id);
-    if (!tx) return;
-    if (confirm("Delete this transaction?")) {
-      setTransactions(prev => prev.filter(t => t.id !== id));
-      setAccounts(prev => prev.map(acc => {
-        if (acc.id === tx.accountId) return { ...acc, balance: acc.balance - tx.amount };
-        return acc;
-      }));
-    }
-  };
-
+  /**
+   * Fix: Use globalThis.Blob to explicitly refer to the browser's Blob constructor,
+   * avoiding potential shadowing issues from library type definitions.
+   */
   const handleBackup = () => {
     const data = JSON.stringify({ accounts, transactions });
-    // Fix: Use browser native Blob constructor to ensure correct typing for URL.createObjectURL
-    const backupBlob = new Blob([data], { type: 'application/json' });
+    const backupBlob = new globalThis.Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(backupBlob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `creditmind_backup.json`;
+    link.download = `creditmind_backup_${new Date().toISOString().split('T')[0]}.json`;
     link.click();
+    // Cleanup the URL to avoid memory leaks
     URL.revokeObjectURL(url);
   };
 
+  /**
+   * Fix: Ensure reader.onload handles the result as a string explicitly.
+   */
   const handleRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -365,7 +164,206 @@ export default function CreditMind() {
     e.target.value = '';
   };
 
-  // Views
+  const deleteTransaction = (id: number) => {
+    const tx = transactions.find(t => t.id === id);
+    if (!tx) return;
+    if (confirm("Delete this transaction?")) {
+      setTransactions(prev => prev.filter(t => t.id !== id));
+      setAccounts(prev => prev.map(acc => {
+        if (acc.id === tx.accountId) return { ...acc, balance: acc.balance - tx.amount };
+        return acc;
+      }));
+    }
+  };
+
+  // --- Sub-Components ---
+
+  const TransactionModal = () => {
+    if (!isAddingTransaction) return null;
+    return (
+      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+        <Card className="max-w-xl w-full p-8 border-none shadow-3xl animate-in zoom-in-95">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-2xl font-black text-slate-900">New Transaction</h3>
+            <button onClick={() => setIsAddingTransaction(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X/></button>
+          </div>
+          
+          <form onSubmit={handleSaveManualTx} className="space-y-6">
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Target Account</label>
+                <select 
+                  required 
+                  value={manualTx.accountId} 
+                  onChange={e => setManualTx({...manualTx, accountId: Number(e.target.value)})}
+                  className="w-full p-3 bg-slate-50 border rounded-xl font-bold focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  {accounts.map(acc => (
+                    <option key={acc.id} value={acc.id}>{acc.name} ({fmt(acc.balance)})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Description</label>
+                <div className="relative">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Tag size={18}/></div>
+                  <input 
+                    type="text" required placeholder="Where did you spend?"
+                    value={manualTx.description} 
+                    onChange={e => setManualTx({...manualTx, description: e.target.value})} 
+                    className="w-full p-3 pl-10 bg-slate-50 border rounded-xl font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Amount</label>
+                  <div className="relative">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">RM</div>
+                    <input 
+                      type="number" step="0.01" required 
+                      value={manualTx.amount} 
+                      onChange={e => setManualTx({...manualTx, amount: Number(e.target.value)})} 
+                      className="w-full p-3 pl-10 bg-slate-50 border rounded-xl font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Date</label>
+                  <input 
+                    type="date" required 
+                    value={manualTx.date} 
+                    onChange={e => setManualTx({...manualTx, date: e.target.value})} 
+                    className="w-full p-3 bg-slate-50 border rounded-xl font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase mb-3 block tracking-widest">Category</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {CATEGORIES.map(cat => (
+                    <button
+                      key={cat} type="button"
+                      onClick={() => setManualTx({...manualTx, category: cat})}
+                      className={`px-3 py-2 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-2 border-2 ${manualTx.category === cat ? 'bg-blue-600 border-blue-600 text-white shadow-lg' : 'bg-white border-slate-100 text-slate-500 hover:border-slate-200'}`}
+                    >
+                      {getCategoryIcon(cat)} {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <Button type="submit" className="w-full py-4 text-lg font-black shadow-xl" icon={Plus}>Add to Ledger</Button>
+          </form>
+        </Card>
+      </div>
+    );
+  };
+
+  const CardEditorModal = () => {
+    if (!editingAccount) return null;
+    const colors = ["bg-blue-600", "bg-emerald-600", "bg-indigo-600", "bg-rose-600", "bg-amber-500", "bg-slate-700", "bg-orange-500", "bg-yellow-500"];
+    
+    return (
+      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+        <Card className="max-w-xl w-full max-h-[90vh] overflow-y-auto p-8 border-none shadow-3xl animate-in zoom-in-95">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-2xl font-black text-slate-900">Edit Card Rules</h3>
+            <button onClick={() => setEditingAccount(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X/></button>
+          </div>
+          
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            setAccounts(prev => prev.map(a => a.id === editingAccount.id ? editingAccount : a));
+            setEditingAccount(null);
+          }} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Card Display Name</label>
+                <input type="text" required value={editingAccount.name} onChange={e => setEditingAccount({...editingAccount, name: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold" />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Card Theme</label>
+                <div className="flex flex-wrap gap-2">
+                  {colors.map(c => (
+                    <button key={c} type="button" onClick={() => setEditingAccount({...editingAccount, color: c})} className={`w-8 h-8 rounded-full ${c} ${editingAccount.color === c ? 'ring-4 ring-slate-200 scale-110' : ''} transition-all`}/>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Credit Limit</label>
+                <input type="number" required value={editingAccount.limit} onChange={e => setEditingAccount({...editingAccount, limit: Number(e.target.value)})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold" />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Due Day (1-31)</label>
+                <input type="number" min="1" max="31" required value={editingAccount.dueDay} onChange={e => setEditingAccount({...editingAccount, dueDay: Number(e.target.value)})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold" />
+              </div>
+            </div>
+
+            <div className="bg-slate-50 p-6 rounded-2xl space-y-4 border border-slate-100">
+               <div className="flex justify-between items-center">
+                 <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest">Reward Strategy</h4>
+                 <select value={editingAccount.benefits.type} onChange={e => setEditingAccount({...editingAccount, benefits: {...editingAccount.benefits, type: e.target.value as any}})} className="bg-white border text-[10px] font-black p-1 rounded-lg">
+                    <option value="cashback">Cashback (%)</option>
+                    <option value="points">Points (x)</option>
+                 </select>
+               </div>
+               
+               <div className="grid grid-cols-2 gap-4 border-b pb-4">
+                  <div>
+                    <label className="text-[8px] font-black text-slate-400 uppercase block mb-1">Base Rate</label>
+                    <input type="number" step="0.1" value={editingAccount.benefits.baseRate} onChange={e => setEditingAccount({...editingAccount, benefits: {...editingAccount.benefits, baseRate: Number(e.target.value)}})} className="w-full p-2 border rounded-lg font-bold text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-[8px] font-black text-slate-400 uppercase block mb-1">Monthly Reward Cap</label>
+                    <input type="number" value={editingAccount.benefits.cap} onChange={e => setEditingAccount({...editingAccount, benefits: {...editingAccount.benefits, cap: Number(e.target.value)}})} className="w-full p-2 border rounded-lg font-bold text-sm" placeholder="0 = Unlimited" />
+                  </div>
+               </div>
+
+               <div className="space-y-3">
+                 <div className="flex justify-between items-center">
+                   <label className="text-[10px] font-black text-slate-400 uppercase block tracking-widest">Category Multipliers</label>
+                   <button type="button" onClick={() => {
+                     setEditingAccount({...editingAccount, benefits: {...editingAccount.benefits, rules: [...editingAccount.benefits.rules, {category: "Dining", rate: 5}]}});
+                   }} className="text-blue-600 text-[10px] font-black flex items-center gap-1"><Plus size={12}/> ADD RULE</button>
+                 </div>
+                 {editingAccount.benefits.rules.map((rule, idx) => (
+                   <div key={idx} className="flex gap-2 animate-in slide-in-from-left-2">
+                     <select value={rule.category} onChange={e => {
+                        const rules = [...editingAccount.benefits.rules];
+                        rules[idx].category = e.target.value;
+                        setEditingAccount({...editingAccount, benefits: {...editingAccount.benefits, rules}});
+                     }} className="flex-1 p-2 border rounded-lg text-xs font-bold bg-white">
+                        {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                     </select>
+                     <input type="number" step="0.1" value={rule.rate} onChange={e => {
+                        const rules = [...editingAccount.benefits.rules];
+                        rules[idx].rate = Number(e.target.value);
+                        setEditingAccount({...editingAccount, benefits: {...editingAccount.benefits, rules}});
+                     }} className="w-20 p-2 border rounded-lg font-bold text-xs bg-white text-center" />
+                     <button type="button" onClick={() => {
+                        const rules = editingAccount.benefits.rules.filter((_, i) => i !== idx);
+                        setEditingAccount({...editingAccount, benefits: {...editingAccount.benefits, rules}});
+                     }} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg"><Trash2 size={16}/></button>
+                   </div>
+                 ))}
+               </div>
+            </div>
+
+            <Button type="submit" className="w-full py-4 font-black shadow-xl" icon={Save}>Apply Card Changes</Button>
+          </form>
+        </Card>
+      </div>
+    );
+  };
+
   const DashboardView = () => (
     <div className="space-y-8 animate-in fade-in duration-700">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -432,8 +430,8 @@ export default function CreditMind() {
         <Card className="p-8">
            <h3 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2"><Activity className="text-orange-500" size={20}/> Recent Ledger</h3>
            <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-             {transactions.slice(0, 10).map(tx => (
-               <div key={tx.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl group relative border border-slate-100">
+             {transactions.slice(0, 8).map(tx => (
+               <div key={tx.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl group relative overflow-hidden border border-slate-100">
                  <div className="flex items-center gap-3">
                    <div className="p-2 bg-white rounded-lg shadow-sm text-blue-500">{getCategoryIcon(tx.category)}</div>
                    <div>
@@ -456,6 +454,7 @@ export default function CreditMind() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col lg:flex-row">
+      {/* Sidebar Navigation */}
       <aside className="w-full lg:w-80 bg-slate-900 shrink-0 lg:fixed lg:h-screen p-10 flex flex-col gap-10 z-[60]">
         <div className="flex items-center gap-4 text-white group cursor-pointer" onClick={() => setActiveTab('dashboard')}>
           <div className="p-3 bg-blue-600 rounded-2xl shadow-2xl group-hover:rotate-12 transition-all">
@@ -486,6 +485,7 @@ export default function CreditMind() {
         </nav>
       </aside>
 
+      {/* Main Content */}
       <main className="flex-1 lg:ml-80 p-8 lg:p-16 min-h-screen">
         <div className="max-w-6xl mx-auto">
           {activeTab === 'dashboard' && <DashboardView />}
@@ -497,8 +497,9 @@ export default function CreditMind() {
                   <h2 className="text-3xl font-black text-slate-900 tracking-tight">Portfolio</h2>
                   <p className="text-slate-500 font-medium">Manage assets and reward rules.</p>
                 </div>
-                <Button onClick={() => alert("Card creation follows logic templates.")} icon={Plus}>Add New Card</Button>
+                <Button onClick={() => alert("Card creation logic follows portfolio templates.")} icon={Plus}>Add New Card</Button>
               </header>
+
               <div className="grid grid-cols-1 gap-8">
                 {accounts.map(acc => (
                   <Card key={acc.id} className="p-8 group relative overflow-hidden">
@@ -542,6 +543,11 @@ export default function CreditMind() {
                               </div>
                             ))}
                           </div>
+                          <div className="pt-2">
+                            <a href={getGoogleCalendarLink(acc.name, acc.balance, acc.dueDay)} target="_blank" className="flex items-center gap-2 text-[10px] font-black text-slate-400 hover:text-blue-600 transition-colors uppercase tracking-widest">
+                               <Calendar size={14}/> Auto-Reminder to Google Calendar
+                            </a>
+                          </div>
                        </div>
                      </div>
                   </Card>
@@ -554,8 +560,9 @@ export default function CreditMind() {
             <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in duration-500 pb-20">
               <header>
                 <h2 className="text-3xl font-black text-slate-900 tracking-tight">Sync Billing</h2>
-                <p className="text-slate-500 font-bold">Import statements automatically via Gemini AI.</p>
+                <p className="text-slate-500 font-bold">Import bank statements automatically via Gemini AI.</p>
               </header>
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <div className="md:col-span-1 space-y-6">
                   <Card className="p-6">
@@ -573,6 +580,7 @@ export default function CreditMind() {
                      </div>
                   </Card>
                 </div>
+
                 <div className="md:col-span-2 space-y-6">
                   {!detectedData ? (
                     <Card className="p-10 border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-center">
@@ -597,13 +605,21 @@ export default function CreditMind() {
                                   setDetectedData(res);
                                 } catch { alert("Extraction failed."); }
                                 finally { setIsProcessing(false); }
-                              }} disabled={isProcessing} icon={Sparkles}>{isProcessing ? "Analyzing..." : `Scan ${previewImages.length} Pages`}</Button>}
+                              }} disabled={isProcessing} icon={Sparkles}>{isProcessing ? "AI Working..." : `Analyze ${previewImages.length} Pages`}</Button>}
+                            </div>
+                            <div className="grid grid-cols-4 gap-2 mt-4">
+                              {previewImages.map((img, i) => (
+                                <div key={i} className="relative aspect-square border rounded-lg overflow-hidden group">
+                                   <img src={img} className="w-full h-full object-cover" />
+                                   <button onClick={() => setPreviewImages(p => p.filter((_, idx) => idx !== i))} className="absolute inset-0 bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><X/></button>
+                                </div>
+                              ))}
                             </div>
                          </div>
                        ) : (
                          <div className="w-full space-y-6">
                             <h4 className="font-black text-slate-800">Paste Billing Text</h4>
-                            <textarea value={pastedText} onChange={e => setPastedText(e.target.value)} placeholder="Paste text here..." className="w-full h-64 p-4 border rounded-2xl bg-slate-50 font-mono text-xs focus:ring-4 outline-none" />
+                            <textarea value={pastedText} onChange={e => setPastedText(e.target.value)} placeholder="Paste text from PDF/Bank Portal..." className="w-full h-64 p-4 border rounded-2xl bg-slate-50 font-mono text-xs focus:ring-4 outline-none" />
                             <Button onClick={async () => {
                                setIsProcessing(true);
                                try {
@@ -611,30 +627,41 @@ export default function CreditMind() {
                                  setDetectedData(res);
                                } catch { alert("Parsing failed."); }
                                finally { setIsProcessing(false); }
-                            }} disabled={isProcessing || !pastedText} icon={Sparkles}>Parse Text</Button>
+                            }} disabled={isProcessing || !pastedText} className="w-full" icon={Sparkles}>{isProcessing ? "Analyzing..." : "Process Text with Gemini"}</Button>
                          </div>
                        )}
                     </Card>
                   ) : (
-                    <Card className="overflow-hidden border-none shadow-3xl">
+                    <Card className="overflow-hidden border-none shadow-3xl animate-in slide-in-from-bottom-6">
                        <div className="bg-slate-900 p-8 text-white">
                          <div className="flex justify-between items-center mb-6">
                            <h4 className="text-xl font-black">Verify Data</h4>
-                           <Button variant="ghost" onClick={() => setDetectedData(null)} icon={X}>Cancel</Button>
+                           <Button variant="ghost" className="text-slate-400 hover:text-white" onClick={() => setDetectedData(null)} icon={X}>Cancel</Button>
                          </div>
                          <div className="grid grid-cols-2 gap-8">
                            <div>
-                             <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Balance</p>
+                             <p className="text-[10px] font-black uppercase text-slate-400 mb-1 tracking-widest">Closing Balance</p>
                              <div className="text-3xl font-black text-emerald-400">{fmt(detectedData.statementBalance || 0)}</div>
                            </div>
                            <div>
-                             <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Due Date</p>
+                             <p className="text-[10px] font-black uppercase text-slate-400 mb-1 tracking-widest">Due Date</p>
                              <div className="text-3xl font-black text-blue-400">{detectedData.dueDate || "N/A"}</div>
                            </div>
                          </div>
                        </div>
                        <div className="p-8 space-y-6 bg-white">
                          <h5 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Transactions Found ({detectedData.transactions?.length || 0})</h5>
+                         <div className="max-h-80 overflow-y-auto space-y-2 pr-2">
+                           {detectedData.transactions?.map((tx, idx) => (
+                             <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                               <div className="text-left">
+                                 <div className="font-black text-slate-800 text-xs truncate max-w-[200px]">{tx.description}</div>
+                                 <div className="text-[8px] font-black text-blue-500 uppercase">{tx.category}</div>
+                               </div>
+                               <div className="font-black text-sm">{fmt(tx.amount || 0)}</div>
+                             </div>
+                           ))}
+                         </div>
                          <Button onClick={() => {
                             const newEntries = (detectedData.transactions || []).map(t => ({
                               id: Date.now() + Math.random(),
@@ -645,10 +672,17 @@ export default function CreditMind() {
                               accountId: targetAccountId
                             } as Transaction));
                             setTransactions(prev => [...newEntries, ...prev]);
-                            setAccounts(prev => prev.map(a => a.id === targetAccountId ? {...a, balance: detectedData.statementBalance || a.balance} : a));
+                            setAccounts(prev => prev.map(a => {
+                              if (a.id === targetAccountId) {
+                                return { ...a, balance: detectedData.statementBalance || a.balance };
+                              }
+                              return a;
+                            }));
                             setDetectedData(null);
-                            alert("Synced!");
-                         }} className="w-full py-5 text-xl font-black shadow-2xl" icon={CheckCircle}>Confirm Sync</Button>
+                            setPreviewImages([]);
+                            setPastedText("");
+                            alert("Synced successfully!");
+                         }} className="w-full py-5 text-xl font-black shadow-2xl" icon={CheckCircle}>Confirm & Sync with Card</Button>
                        </div>
                     </Card>
                   )}
@@ -660,18 +694,27 @@ export default function CreditMind() {
           {activeTab === 'ai-insights' && (
              <div className="max-w-2xl mx-auto text-center space-y-12 animate-in zoom-in-95 duration-500">
                 <div className="p-16 bg-white rounded-[3rem] shadow-2xl border border-slate-100">
-                  <div className="w-24 h-24 bg-indigo-600 text-white rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-2xl"><BrainCircuit size={48} /></div>
+                  <div className="w-24 h-24 bg-indigo-600 text-white rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-2xl">
+                    <BrainCircuit size={48} />
+                  </div>
                   <h2 className="text-4xl font-black text-slate-900 tracking-tight">Strategy Optimizer</h2>
+                  <p className="text-slate-500 text-lg font-medium">Gemini will analyze your rules vs. spending to find the best reward paths.</p>
                   <Button onClick={async () => {
                     setIsGeneratingAi(true);
                     try {
                       const res = await getSpendingInsights(transactions, accounts);
                       setAiInsights(res || "");
-                    } catch { setAiInsights("Failed to connect."); }
+                    } catch { setAiInsights("Connection failed."); }
                     finally { setIsGeneratingAi(false); }
-                  }} className="w-full mt-10 py-6 text-xl font-black shadow-2xl" disabled={isGeneratingAi}>Optimize Rewards</Button>
+                  }} className="w-full mt-10 py-6 text-xl font-black shadow-2xl" disabled={isGeneratingAi}>
+                    {isGeneratingAi ? "Thinking..." : "Optimize Rewards"}
+                  </Button>
                 </div>
-                {aiInsights && <Card className="p-10 text-left shadow-2xl"><div className="prose prose-slate max-w-none font-bold text-slate-700 whitespace-pre-wrap">{aiInsights}</div></Card>}
+                {aiInsights && (
+                  <Card className="p-10 text-left shadow-2xl border-none ring-1 ring-slate-100">
+                    <div className="prose prose-slate max-w-none font-bold text-slate-700 leading-relaxed whitespace-pre-wrap">{aiInsights}</div>
+                  </Card>
+                )}
              </div>
           )}
 
@@ -681,20 +724,25 @@ export default function CreditMind() {
               <Card className="p-10 space-y-8">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h4 className="font-black text-slate-800">Backup Portfolio</h4>
-                    <p className="text-xs text-slate-500">Download local JSON.</p>
+                    <h4 className="font-black text-slate-800">Export Ledger</h4>
+                    <p className="text-xs text-slate-500 font-medium">Download local JSON backup.</p>
                   </div>
-                  <Button icon={Download} onClick={handleBackup}>Export</Button>
+                  <Button icon={Download} onClick={handleBackup}>Export JSON</Button>
                 </div>
                 <div className="border-t pt-8 flex items-center justify-between">
                   <div>
                     <h4 className="font-black text-slate-800">Restore Data</h4>
-                    <p className="text-xs text-slate-500">Upload JSON.</p>
+                    <p className="text-xs text-slate-500 font-medium">Upload a previous JSON backup.</p>
                   </div>
                   <div className="relative">
                     <input type="file" onChange={handleRestore} className="absolute inset-0 opacity-0 cursor-pointer" accept=".json" />
                     <Button variant="secondary" icon={RefreshCw}>Restore</Button>
                   </div>
+                </div>
+                <div className="border-t pt-8">
+                  <Button variant="danger" className="w-full" onClick={() => {
+                    if(confirm("WIPE ALL DATA?")) { localStorage.clear(); window.location.reload(); }
+                  }} icon={Trash2}>Reset All Local Storage</Button>
                 </div>
               </Card>
             </div>
@@ -702,27 +750,9 @@ export default function CreditMind() {
         </div>
       </main>
 
-      {/* Modals are now stable outside the main function */}
-      <TransactionModal 
-        isOpen={isAddingTransaction} 
-        onClose={() => setIsAddingTransaction(false)}
-        manualTx={manualTx}
-        setManualTx={setManualTx}
-        accounts={accounts}
-        onSave={handleSaveManualTx}
-      />
-      <CardEditorModal 
-        editingAccount={editingAccount}
-        onClose={() => setEditingAccount(null)}
-        setEditingAccount={setEditingAccount}
-        onSave={(e) => {
-          e.preventDefault();
-          if (editingAccount) {
-            setAccounts(prev => prev.map(a => a.id === editingAccount.id ? editingAccount : a));
-            setEditingAccount(null);
-          }
-        }}
-      />
+      {/* Modals */}
+      <TransactionModal />
+      <CardEditorModal />
     </div>
   );
 }
