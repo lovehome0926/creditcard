@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   CreditCard, Upload, Plus, Trash2, Calendar, DollarSign, Activity, 
@@ -335,7 +336,6 @@ export default function CreditMind() {
 
   const handleBackup = () => {
     const data = JSON.stringify({ accounts, transactions });
-    // Fix: Use browser native Blob constructor to ensure correct typing for URL.createObjectURL
     const backupBlob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(backupBlob);
     const link = document.createElement('a');
@@ -593,9 +593,11 @@ export default function CreditMind() {
                               {previewImages.length > 0 && <Button onClick={async () => {
                                 setIsProcessing(true);
                                 try {
-                                  const res = await extractFromImage(previewImages.map(img => img.split(',')[1]));
+                                  const res = await extractFromImage(previewImages);
                                   setDetectedData(res);
-                                } catch { alert("Extraction failed."); }
+                                } catch (error: any) { 
+                                  alert(`Extraction failed: ${error.message || error}`); 
+                                }
                                 finally { setIsProcessing(false); }
                               }} disabled={isProcessing} icon={Sparkles}>{isProcessing ? "Analyzing..." : `Scan ${previewImages.length} Pages`}</Button>}
                             </div>
@@ -609,7 +611,9 @@ export default function CreditMind() {
                                try {
                                  const res = await extractFromText(pastedText);
                                  setDetectedData(res);
-                               } catch { alert("Parsing failed."); }
+                               } catch (error: any) { 
+                                 alert(`Parsing failed: ${error.message || error}`); 
+                               }
                                finally { setIsProcessing(false); }
                             }} disabled={isProcessing || !pastedText} icon={Sparkles}>Parse Text</Button>
                          </div>
