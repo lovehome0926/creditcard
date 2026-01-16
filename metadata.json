@@ -1,0 +1,5 @@
+{
+  "name": "CreditMind",
+  "description": "An advanced credit card and BNPL debt management dashboard featuring smart reward optimization, automated bill parsing, and AI-driven spending insights.",
+  "requestFramePermissions": []
+}
